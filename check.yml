@@ -1,0 +1,40 @@
+---
+- hosts: all
+  environment:
+    PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/root/bin:/bin:/sbin
+  tasks:
+    - name: Check Caddy version if exist
+      block:
+        - name: Run "caddy version" command
+          shell: caddy version
+          register: caddy_version
+        - name: Show Caddy version
+          debug:
+            msg: "Caddy Version: {{ caddy_version.stdout | regex_replace('v(\\d+\\.\\d+\\.\\d+).*', '\\1') | default('Caddy is not installed') }}"
+          when: caddy_version.stdout is match('v(\\d+\\.\\d+\\.\\d+)')
+        - name: Check Caddy status
+          block:
+            - name: Check Caddy if running
+              shell: service caddy status
+              register: caddy_status
+            - name: Show Caddy Status
+              debug:
+                msg: "{{ 'Caddy is running' if 'Active: active' in caddy_status.stdout}}"
+              when: caddy_status is succeeded
+          rescue:
+            - name: or not running?
+              debug:
+                msg: Caddy is not running!  
+        - name: Get Caddy modules list
+          command: caddy list-modules --packages --skip-standard
+          register: caddy_plugins_output
+        - name: Format Caddy plugins list
+          set_fact:
+            caddy_plugins_list: "{{ caddy_plugins_output.stdout_lines[1:] }}"
+        - name: Display formatted Caddy plugins list
+          debug:
+            var: caddy_plugins_list
+      rescue:
+        - name: or not exist?
+          debug:
+            msg: Caddy isn't here!
