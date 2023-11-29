@@ -1,0 +1,5 @@
+all:
+  hosts:
+    ahmet.test.vpn.biz.tr:
+      ansible_host: ahmet.test.vpn.biz.tr
+      ansible_user: root

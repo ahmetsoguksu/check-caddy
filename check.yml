@@ -6,17 +6,26 @@
     - name: Check Caddy version if exist
       block:
         - name: Run "caddy version" command
-          shell: caddy version
+          shell: caddy version || caddy -version
           register: caddy_version
         - name: Show Caddy version
           debug:
-            msg: "Caddy Version: {{ caddy_version.stdout | regex_replace('v(\\d+\\.\\d+\\.\\d+).*', '\\1') | default('Caddy is not installed') }}"
-          when: caddy_version.stdout is match('v(\\d+\\.\\d+\\.\\d+)')
+          #  msg: "Caddy Version: {{ caddy_version.stdout | regex_replace('v(\\d+\\.\\d+\\.\\d+).*', '\\1') | default('Caddy is not installed') }}"
+          #when: caddy_version.stdout is match('v(\\d+\\.\\d+\\.\\d+)')
+            msg: >
+              {% if caddy_version.stdout is match('v(\\d+\\.\\d+\\.\\d+)') %}
+                Caddy Version: {{ caddy_version.stdout | regex_replace('v(\\d+\\.\\d+\\.\\d+).*', '\\1') }}
+              {% elif caddy_version.stdout == 'unknown' %}
+                Caddy Version: unknown
+              {% else %}
+                Hata: Caddy versiyon bilgisi alınamadı.
+              {% endif %}
         - name: Check Caddy status
           block:
             - name: Check Caddy if running
               shell: service caddy status
               register: caddy_status
+              ignore_errors: true
             - name: Show Caddy Status
               debug:
                 msg: "{{ 'Caddy is running' if 'Active: active' in caddy_status.stdout}}"
@@ -26,14 +35,22 @@
               debug:
                 msg: Caddy is not running!  
         - name: Get Caddy modules list
-          command: caddy list-modules --packages --skip-standard
-          register: caddy_plugins_output
-        - name: Format Caddy plugins list
-          set_fact:
-            caddy_plugins_list: "{{ caddy_plugins_output.stdout_lines[1:] }}"
-        - name: Display formatted Caddy plugins list
-          debug:
-            var: caddy_plugins_list
+          block:
+            - name: Get Caddy plugin list
+              command: caddy list-modules --packages --skip-standard
+              register: caddy_plugins_output
+            - name: Format Caddy plugins list
+              set_fact:
+                caddy_plugins_list: "{{ caddy_plugins_output.stdout_lines[1:] }}"
+              when: caddy_plugins_output is succeeded
+            - name: Display formatted Caddy plugins list
+              debug:
+                var: caddy_plugins_list
+              when: caddy_plugins_list is succeeded
+          rescue:
+            - name: There is a problem
+              debug:
+                msg: Failed to get caddy modules!
       rescue:
         - name: or not exist?
           debug:
