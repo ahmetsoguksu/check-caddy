@@ -10,11 +10,9 @@
           register: caddy_version
         - name: Show Caddy version
           debug:
-          #  msg: "Caddy Version: {{ caddy_version.stdout | regex_replace('v(\\d+\\.\\d+\\.\\d+).*', '\\1') | default('Caddy is not installed') }}"
-          #when: caddy_version.stdout is match('v(\\d+\\.\\d+\\.\\d+)')
             msg: >
               {% if caddy_version.stdout is match('v(\\d+\\.\\d+\\.\\d+)') %}
-                Caddy Version: {{ caddy_version.stdout | regex_replace('v(\\d+\\.\\d+\\.\\d+).*', '\\1') }}
+                Caddy Version: {{ caddy_version.stdout.split(' ')[0] }}
               {% elif caddy_version.stdout == 'unknown' %}
                 Caddy Version: unknown
               {% else %}
@@ -23,30 +21,49 @@
         - name: Check Caddy status
           block:
             - name: Check Caddy if running
-              shell: service caddy status
+              shell: service caddy status > /dev/null 2>&1
               register: caddy_status
-              ignore_errors: true
+              when: caddy_version.stdout is match('v(\\d+\\.\\d+\\.\\d+)')
             - name: Show Caddy Status
               debug:
-                msg: "{{ 'Caddy is running' if 'Active: active' in caddy_status.stdout}}"
+                msg: "Caddy is running as a service"
               when: caddy_status is succeeded
           rescue:
             - name: or not running?
               debug:
-                msg: Caddy is not running!  
+                msg: Caddy service is not running! Checking proccesses...
+            - name: Any caddy proccess is running?
+              shell: ps aux | grep '[c]addy'
+              register: caddy_process
+              ignore_errors: true
+            - name: Display Caddy process status
+              debug:
+                msg: >
+                  {% if caddy_process.stdout %}
+                    "Caddy Process: {{ caddy_process.stdout }}"
+                  {% else %}
+                    There is no running Caddy proccess.
+                  {% endif %}
+            - name: Check Caddy version if any process is running
+              shell: "{{ caddy_process.stdout.split()[10] }} version || {{ caddy_process.stdout.split()[10] }} -version"
+              register: caddy_version_from_binary
+              when: caddy_process.stdout | length > 0
+            - name: Display Caddy version if running as a binary.
+              debug:
+                msg: "Running Caddy Version: {{ caddy_version_from_binary.stdout }}"
+              when: caddy_version_from_binary.stdout is defined
         - name: Get Caddy modules list
           block:
             - name: Get Caddy plugin list
-              command: caddy list-modules --packages --skip-standard
+              shell: caddy list-modules --packages --skip-standard || caddy -plugins
               register: caddy_plugins_output
             - name: Format Caddy plugins list
               set_fact:
                 caddy_plugins_list: "{{ caddy_plugins_output.stdout_lines[1:] }}"
               when: caddy_plugins_output is succeeded
-            - name: Display formatted Caddy plugins list
+            - name: Display formatted Caddy plugin list
               debug:
                 var: caddy_plugins_list
-              when: caddy_plugins_list is succeeded
           rescue:
             - name: There is a problem
               debug:
@@ -55,3 +72,24 @@
         - name: or not exist?
           debug:
             msg: Caddy isn't here!
+
+    - name: Save gathered facts
+      set_fact:
+        caddy_version_fact: "{{ caddy_version.stdout if caddy_version is defined else 'undefined' }}"
+        caddy_status_fact: "{{ 'Caddy is running as a service' if caddy_status is succeeded else 'undefined' }}"
+        caddy_process_status_fact: "{{ caddy_process.stdout if caddy_process is defined else 'undefined' }}"
+        caddy_version_from_binary_fact: "{{ caddy_version_from_binary.stdout if caddy_version_from_binary is defined else 'undefined' }}"
+        caddy_plugins_list_fact: "{{ caddy_plugins_list if caddy_plugins_list is defined else 'undefined' }}"
+      ignore_errors: true
+
+    - name: Display gathered facts
+      debug:
+        msg: |
+          Caddy Version: {{ caddy_version_fact }}
+          Caddy Status: {{ caddy_status_fact }}
+          Caddy Process Status: "{{ caddy_process_status_fact }}"
+          Running Caddy Version: {{ caddy_version_from_binary_fact }}
+          Caddy Plugins List:
+            {% for plugin in caddy_plugins_list_fact %}
+              - {{ plugin }}
+            {% endfor %}
